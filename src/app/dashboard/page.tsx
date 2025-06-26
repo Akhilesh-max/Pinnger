@@ -32,23 +32,7 @@ export default function Dashboard() {
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('username');
-    // Note: We don't remove pinngers data so it persists across logins
     router.push('/login');
-  };
-
-  const clearAllData = async () => {
-    if (confirm('Are you sure you want to clear all pinnger data? This cannot be undone.')) {
-      try {
-        // Delete all pinngers from database
-        for (const pinnger of pinngers) {
-          await deletePinnger(pinnger.id);
-        }
-        alert('All data cleared successfully');
-      } catch (error) {
-        console.error('Error clearing data:', error);
-        alert('Error clearing data. Check console for details.');
-      }
-    }
   };
 
   const handleAddPinnger = (e: React.FormEvent) => {
@@ -119,24 +103,6 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
-
-      {/* Debug Info - Remove in production */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
-        <div className="bg-blue-50 dark:bg-blue-900 rounded-lg p-3 mb-4">
-          <div className="flex justify-between items-center">
-            <div className="text-sm text-blue-700 dark:text-blue-300">
-              Debug: {pinngers.length} pinngers loaded from TursoDB | 
-              Status: Connected to database
-            </div>
-            <button
-              onClick={clearAllData}
-              className="text-xs bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded"
-            >
-              Clear All Data
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Stats */}
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">

@@ -59,13 +59,19 @@ export function usePinngers() {
           lastResponse = undefined;
         }
 
-        let responseHistory = [];
+        let responseHistory: PingResponse[] = [];
         try {
-          const historyData = JSON.parse(p.responseHistory || '[]');
-          responseHistory = historyData.map((r: any) => ({
-            ...r,
-            timestamp: new Date(r.timestamp)
-          }));
+          const historyData = JSON.parse(p.responseHistory || '[]') as unknown[];
+          responseHistory = historyData.map((r: unknown) => {
+            const response = r as Record<string, unknown>;
+            return {
+              status: response.status as number,
+              statusText: response.statusText as string,
+              responseTime: response.responseTime as number,
+              timestamp: new Date(response.timestamp as string),
+              error: response.error as string | undefined
+            };
+          });
         } catch (e) {
           console.warn('Error parsing responseHistory for pinnger', p.id, e);
           responseHistory = [];
@@ -85,98 +91,14 @@ export function usePinngers() {
     }
   };
 
-  // Simulate ping functionality with real HTTP requests
+  // Load pinngers and refresh periodically
   useEffect(() => {
-    if (isLoading) return; // Don't start pinging until data is loaded
+    if (isLoading) return;
 
-    const performPing = async (pinnger: Pinnger): Promise<PingResponse> => {
-      const startTime = Date.now();
-      
-      try {
-        // Use a CORS proxy for demo purposes, or you could create an API route
-        const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(pinnger.url)}`, {
-          method: 'HEAD',
-          signal: AbortSignal.timeout(10000) // 10 second timeout
-        });
-        
-        const responseTime = Date.now() - startTime;
-        
-        return {
-          status: response.status,
-          statusText: response.statusText || 'OK',
-          responseTime,
-          timestamp: new Date()
-        };
-      } catch (error) {
-        const responseTime = Date.now() - startTime;
-        
-        return {
-          status: 0,
-          statusText: 'Network Error',
-          responseTime,
-          timestamp: new Date(),
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    };
-
-    const interval = setInterval(async () => {
-      // Get fresh data from database to ensure we have latest state
-      const currentPinngers = await dbService.getAllPinngers();
-      
-      for (const dbPinnger of currentPinngers) {
-        if (dbPinnger.status !== 'active') continue;
-        
-        const now = new Date();
-        const lastPing = dbPinnger.lastPing ? new Date(dbPinnger.lastPing) : new Date(0);
-        const minutesSinceLastPing = (now.getTime() - lastPing.getTime()) / (1000 * 60);
-        
-        if (minutesSinceLastPing >= parseInt(dbPinnger.duration)) {
-          const pinnger: Pinnger = {
-            ...dbPinnger,
-            createdAt: new Date(dbPinnger.createdAt),
-            lastPing: dbPinnger.lastPing ? new Date(dbPinnger.lastPing) : undefined,
-            lastResponse: dbPinnger.lastResponse ? JSON.parse(dbPinnger.lastResponse) : undefined,
-            responseHistory: JSON.parse(dbPinnger.responseHistory).map((r: any) => ({
-              ...r,
-              timestamp: new Date(r.timestamp)
-            }))
-          };
-
-          const response = await performPing(pinnger);
-          const success = response.status >= 200 && response.status < 400;
-          
-          const newHistory = [...(pinnger.responseHistory || []), response].slice(-10);
-          
-          // Update in database
-          await dbService.updatePinnger(pinnger.id, {
-            lastPing: now.toISOString(),
-            lastStatus: success ? 'success' : 'failed',
-            lastResponse: JSON.stringify({
-              ...response,
-              timestamp: response.timestamp.toISOString()
-            }),
-            responseHistory: JSON.stringify(newHistory.map(r => ({
-              ...r,
-              timestamp: r.timestamp.toISOString()
-            })))
-          });
-          
-          // Update local state
-          setPinngers(prev => prev.map(p => 
-            p.id === pinnger.id 
-              ? {
-                  ...p,
-                  lastPing: now,
-                  lastStatus: success ? 'success' : 'failed',
-                  lastResponse: response,
-                  responseHistory: newHistory
-                }
-              : p
-          ));
-        }
-      }
-    }, 30000); // Check every 30 seconds
+    // Refresh data every 30 seconds to show latest ping results
+    const interval = setInterval(() => {
+      loadPinngers();
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [isLoading]);
@@ -275,91 +197,23 @@ export function usePinngers() {
     const pinnger = pinngers.find(p => p.id === id);
     if (!pinnger) return;
 
-    const startTime = Date.now();
-    
     try {
-      const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(pinnger.url)}`, {
-        method: 'HEAD',
-        signal: AbortSignal.timeout(10000)
+      const response = await fetch('/api/ping', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
       });
       
-      const responseTime = Date.now() - startTime;
-      const success = response.status >= 200 && response.status < 400;
+      const result = await response.json();
       
-      const pingResponse: PingResponse = {
-        status: response.status,
-        statusText: response.statusText || 'OK',
-        responseTime,
-        timestamp: new Date()
-      };
-
-      const newHistory = [...(pinnger.responseHistory || []), pingResponse].slice(-10);
-
-      // Update in database
-      await dbService.updatePinnger(id, {
-        lastPing: new Date().toISOString(),
-        lastStatus: success ? 'success' : 'failed',
-        lastResponse: JSON.stringify({
-          ...pingResponse,
-          timestamp: pingResponse.timestamp.toISOString()
-        }),
-        responseHistory: JSON.stringify(newHistory.map(r => ({
-          ...r,
-          timestamp: r.timestamp.toISOString()
-        })))
-      });
-
-      // Update local state
-      setPinngers(current => current.map(p => 
-        p.id === id 
-          ? {
-              ...p,
-              lastPing: new Date(),
-              lastStatus: success ? 'success' : 'failed',
-              lastResponse: pingResponse,
-              responseHistory: newHistory
-            }
-          : p
-      ));
+      if (result.success) {
+        // Refresh the data to show updated results
+        await loadPinngers();
+      }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
-      
-      const pingResponse: PingResponse = {
-        status: 0,
-        statusText: 'Network Error',
-        responseTime,
-        timestamp: new Date(),
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-
-      const newHistory = [...(pinnger.responseHistory || []), pingResponse].slice(-10);
-
-      // Update in database
-      await dbService.updatePinnger(id, {
-        lastPing: new Date().toISOString(),
-        lastStatus: 'failed',
-        lastResponse: JSON.stringify({
-          ...pingResponse,
-          timestamp: pingResponse.timestamp.toISOString()
-        }),
-        responseHistory: JSON.stringify(newHistory.map(r => ({
-          ...r,
-          timestamp: r.timestamp.toISOString()
-        })))
-      });
-
-      // Update local state
-      setPinngers(current => current.map(p => 
-        p.id === id 
-          ? {
-              ...p,
-              lastPing: new Date(),
-              lastStatus: 'failed',
-              lastResponse: pingResponse,
-              responseHistory: newHistory
-            }
-          : p
-      ));
+      console.error('Error testing ping:', error);
     }
   };
 

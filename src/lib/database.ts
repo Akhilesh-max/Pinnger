@@ -1,10 +1,10 @@
 'use client';
 
-import { createClient } from '@libsql/client';
+import { createClient, Client, InValue } from '@libsql/client';
 
-let client: any = null;
+let client: Client | null = null;
 
-function getClient() {
+function getClient(): Client {
   if (!client) {
     client = createClient({
       url: process.env.NEXT_PUBLIC_TURSO_DATABASE_URL || 'libsql://pinnger-akhilesh.aws-ap-south-1.turso.io',
@@ -36,7 +36,7 @@ export interface DatabasePinnger {
 }
 
 export class DatabaseService {
-  private client: any;
+  private client: Client;
 
   constructor() {
     this.client = getClient();
@@ -69,17 +69,17 @@ export class DatabaseService {
   async getAllPinngers(): Promise<DatabasePinnger[]> {
     try {
       const result = await this.client.execute('SELECT * FROM pinngers ORDER BY createdAt DESC');
-      return result.rows.map((row: any) => ({
-        id: row.id,
-        websiteName: row.websiteName,
-        url: row.url,
-        duration: row.duration,
-        status: row.status,
-        lastPing: row.lastPing,
-        lastStatus: row.lastStatus,
-        lastResponse: row.lastResponse,
-        responseHistory: row.responseHistory || '[]',
-        createdAt: row.createdAt
+      return result.rows.map((row: Record<string, unknown>) => ({
+        id: row.id as string,
+        websiteName: row.websiteName as string,
+        url: row.url as string,
+        duration: row.duration as string,
+        status: row.status as 'active' | 'paused',
+        lastPing: row.lastPing as string | undefined,
+        lastStatus: row.lastStatus as 'success' | 'failed' | undefined,
+        lastResponse: row.lastResponse as string | undefined,
+        responseHistory: (row.responseHistory as string) || '[]',
+        createdAt: row.createdAt as string
       }));
     } catch (error) {
       console.error('Error fetching pinngers:', error);
@@ -108,7 +108,7 @@ export class DatabaseService {
   async updatePinnger(id: string, updates: Partial<DatabasePinnger>): Promise<void> {
     try {
       const setParts: string[] = [];
-      const args: any[] = [];
+      const args: InValue[] = [];
 
       if (updates.websiteName !== undefined) {
         setParts.push('websiteName = ?');
@@ -181,7 +181,7 @@ export class DatabaseService {
 
       if (result.rows.length === 0) return;
 
-      const currentStatus = result.rows[0].status;
+      const currentStatus = result.rows[0].status as string;
       const newStatus = currentStatus === 'active' ? 'paused' : 'active';
 
       await this.client.execute({
