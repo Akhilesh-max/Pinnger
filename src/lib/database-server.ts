@@ -144,7 +144,7 @@ export class DatabaseService {
   async updatePinnger(id: string, updates: Partial<Omit<DatabasePinnger, 'id' | 'createdAt'>>): Promise<void> {
     try {
       const setParts: string[] = [];
-      const args: any[] = [];
+      const args: (string | number | boolean | null)[] = [];
       
       Object.entries(updates).forEach(([key, value]) => {
         if (value !== undefined) {
